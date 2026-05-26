@@ -202,6 +202,7 @@
             background: var(--card-bg);
             border: 1px dashed var(--card-border);
             border-radius: 12px;
+            width: 100%;
         }
 
         @media (max-width: 600px) {
@@ -243,7 +244,7 @@
             databaseURL: "https://forcehub-8a4ba-default-rtdb.firebaseio.com/" 
         };
 
-        // Inicializar la conexión
+        // Inicializar Firebase de forma segura
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
         const contenedorLista = document.getElementById('lista-usuarios');
@@ -252,59 +253,87 @@
         // LEER USUARIOS EN TIEMPO REAL
         // ==========================================
         const referenciasEjecucion = ref(db, 'ejecuciones/');
+        
         onValue(referenciasEjecucion, (snapshot) => {
-            contenedorLista.innerHTML = ""; // Limpiar estados anteriores
+            contenedorLista.innerHTML = ""; // Limpiar antes de actualizar
             
             const logs = snapshot.val();
-            if (logs) {
+            if (logs && Object.keys(logs).length > 0) {
                 Object.keys(logs).forEach(idUsuario => {
                     const datosJugador = logs[idUsuario];
                     
-                    // Crear estructura de tarjeta usando tus estilos css personalizados
+                    // Asegurar consistencia de los datos antes de renderizar
+                    const avatarUrl = datosJugador.Foto || "https://images.roblox.com/v1/users/avatar-headshot?userId=1&width=150&height=150&format=png";
+                    const dispName = datosJugador.DisplayName || "Unknown";
+                    const usrName = datosJugador.Usuario || "Player";
+                    const uId = datosJugador.UserId || idUsuario;
+
                     const tarjeta = document.createElement('div');
                     tarjeta.className = 'user-card';
                     tarjeta.innerHTML = `
                         <div class="user-info">
-                            <img class="avatar" src="${datosJugador.Foto}" alt="Avatar">
+                            <img class="avatar" src="${avatarUrl}" alt="Avatar" onerror="this.src='https://images.roblox.com/v1/users/avatar-headshot?userId=1&width=150&height=150&format=png'">
                             <div class="details">
-                                <span class="username">${datosJugador.DisplayName} <span class="badge">@${datosJugador.Usuario}</span></span>
-                                <span class="userid">ID: ${datosJugador.UserId}</span>
+                                <span class="username">${dispName} <span class="badge">@${usrName}</span></span>
+                                <span class="userid">ID: ${uId}</span>
                             </div>
                         </div>
                         <div class="actions">
-                            <button class="btn" onclick="mandarAccion('kick', '${datosJugador.UserId}')">Kick</button>
-                            <button class="btn" onclick="mandarAccion('ban', '${datosJugador.UserId}')">Ban</button>
-                            <button class="btn btn-unban" onclick="mandarAccion('unban', '${datosJugador.UserId}')">Unban</button>
+                            <button class="btn btn-kick" data-id="${uId}">Kick</button>
+                            <button class="btn btn-ban" data-id="${uId}">Ban</button>
+                            <button class="btn btn-unban" data-id="${uId}">Unban</button>
                         </div>
                     `;
                     contenedorLista.appendChild(tarjeta);
                 });
+
+                // Asignar los eventos de click directamente en el módulo de JS para evitar errores de Scope global
+                asociarEventosBotones();
             } else {
                 contenedorLista.innerHTML = '<div class="no-users">Ningún jugador está usando el script en este momento...</div>';
             }
+        }, (error) => {
+            console.error("Error de Firebase Read:", error);
         });
 
         // ==========================================
-        // MANEJAR ACCIONES DE BOTONES (KICK, BAN, UNBAN)
+        // ASIGNACIÓN INTERNA DE EVENTOS
         // ==========================================
-        window.mandarAccion = function(tipo, id) {
+        function asociarEventosBotones() {
+            document.querySelectorAll('.actions .btn').forEach(boton => {
+                boton.onclick = function() {
+                    const id = this.getAttribute('data-id');
+                    if (this.classList.contains('btn-unban')) {
+                        mandarAccion('unban', id);
+                    } else if (this.classList.contains('btn-ban')) {
+                        mandarAccion('ban', id);
+                    } else {
+                        mandarAccion('kick', id);
+                    }
+                };
+            });
+        }
+
+        // ==========================================
+        // PROCESAMIENTO DE ACCIONES EN LA DB
+        // ==========================================
+        function mandarAccion(tipo, id) {
             console.log(`%c[SISTEMA] Acción: ${tipo.toUpperCase()} enviada al ID: ${id}`, "color: #ff1e1e; font-weight: bold;");
             
             if (tipo === 'kick') {
-                // Guarda la orden en la blacklist para el bucle de Roblox
-                set(ref(db, 'blacklist/' + id), 'kick');
-                // Lo borra de la lista visual para limpiar espacio
-                remove(ref(db, 'ejecuciones/' + id));
+                set(ref(db, 'blacklist/' + id), 'kick')
+                    .then(() => remove(ref(db, 'ejecuciones/' + id)))
+                    .catch(err => console.error("Error al ejecutar Kick:", err));
             } 
             else if (tipo === 'ban') {
-                // Bloqueo permanente en el nodo blacklist
-                set(ref(db, 'blacklist/' + id), 'ban');
-                remove(ref(db, 'ejecuciones/' + id));
+                set(ref(db, 'blacklist/' + id), 'ban')
+                    .then(() => remove(ref(db, 'ejecuciones/' + id)))
+                    .catch(err => console.error("Error al ejecutar Ban:", err));
             } 
             else if (tipo === 'unban') {
-                // Quita la restricción de la blacklist
-                remove(ref(db, 'blacklist/' + id));
-                alert(`ID ${id} removido con éxito de la blacklist.`);
+                remove(ref(db, 'blacklist/' + id))
+                    .then(() => alert(`ID ${id} removido con éxito de la blacklist.`))
+                    .catch(err => console.error("Error al remover Ban:", err));
             }
         }
     </script>
